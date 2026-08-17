@@ -1,0 +1,11 @@
+# macOS
+.DS_Store
+
+# Editor / OS noise
+Thumbs.db
+*.swp
+
+# Local safety backups (kept on disk, not in the repo)
+*.bak
+*.backup-*
+*.backup2-*
