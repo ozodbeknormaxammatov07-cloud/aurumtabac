@@ -155,11 +155,14 @@
       cancelAnimationFrame(rafId);
     }
 
-    // Fetch frame 1 straight away so the box is never empty, then trickle the
-    // rest in a few at a time. Firing all of them at once saturates the
-    // connection and starves the rest of the page on a slow link; the scrub
-    // meanwhile falls back to the nearest frame that has arrived.
-    var queue = [], inFlight = 0, MAX_PARALLEL = 4;
+    // Fetch frame 1 straight away so the box is never empty, then pull the rest
+    // in behind it. A frame is ~27KB and transfers in about 4ms; the round trip
+    // costs ~390ms, so this is latency-bound and the width of the window is what
+    // matters, not the bytes. Four at a time was sized for HTTP/1.1's six
+    // connections per host -- over HTTP/2 the streams multiplex onto one
+    // connection and that cap just leaves the link idle. The bulk only starts at
+    // window load (see below), so a wider window cannot starve first paint.
+    var queue = [], inFlight = 0, MAX_PARALLEL = 16;
 
     function fetchFrame(i){
       inFlight++;
@@ -182,7 +185,20 @@
     }
 
     fetchFrame(0);
-    for(var i = 1; i < total; i++) queue.push(i);
+
+    // Coarse pass first, then progressively fill the gaps: every 8th frame, then
+    // the 4s, the 2s, and finally the odd ones. Requesting them in order would
+    // leave the far end of the scene with nothing decoded for most of the load,
+    // and nearestReady() would keep showing an early frame however far you
+    // scrolled. This way the whole scroll range is covered after one window --
+    // roughly a second -- and only sharpens from there.
+    var queued = {};
+    for(var stride = 8; stride >= 1; stride = stride >> 1){
+      for(var i = 0; i < total; i += stride){
+        if(i && !queued[i]){ queued[i] = 1; queue.push(i); }
+      }
+    }
+
     // pump() only tops the queue up to MAX_PARALLEL, so calling it twice is safe.
     if(document.readyState === 'complete') pump();
     else { window.addEventListener('load', pump); setTimeout(pump, 2000); }
